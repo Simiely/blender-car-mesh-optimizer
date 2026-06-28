@@ -292,10 +292,15 @@ class CARMESH_OT_select_short(bpy.types.Operator):
         bpy.ops.mesh.select_all(action='DESELECT')
         bm = bmesh.from_edit_mesh(obj.data)
         bm.edges.ensure_lookup_table()
+        # 先清空 data 层级选择，再通过 bmesh 设置
+        for e in obj.data.edges:
+            e.select = False
         cnt = 0
         for e in bm.edges:
             if e.calc_length() < threshold:
                 e.select = True
+                if e.index < len(obj.data.edges):
+                    obj.data.edges[e.index].select = True
                 cnt += 1
         bmesh.update_edit_mesh(obj.data)
         if cnt == 0:

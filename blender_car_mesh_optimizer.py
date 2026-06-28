@@ -125,6 +125,14 @@ def _voxel_remesh(obj, size):
         mod.mode = 'VOXEL'
         mod.voxel_size = size
         mod.use_smooth_shade = True
+        try:
+            mod.use_remove_disconnected = False
+        except Exception:
+            pass
+        try:
+            mod.adaptivity = 0.0
+        except Exception:
+            pass
         bpy.ops.object.modifier_apply(modifier=mod.name)
         return
     except Exception:
@@ -136,6 +144,18 @@ def _voxel_remesh(obj, size):
         except Exception:
             pass
     raise RuntimeError("体素重网格失败，当前版本不支持")
+
+
+def _coarse_decimate(obj, ratio):
+    _ensure_object_mode()
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    mod = obj.modifiers.new(name="CD_Coarse", type='DECIMATE')
+    mod.decimate_type = 'COLLAPSE'
+    mod.ratio = ratio
+    mod.use_collapse_triangulate = True
+    bpy.ops.object.modifier_apply(modifier=mod.name)
 
 
 def _shrinkwrap(obj, target, offset=0.0005):

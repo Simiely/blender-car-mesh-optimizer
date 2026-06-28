@@ -365,24 +365,36 @@ class CARMESH_OT_optimize(bpy.types.Operator):
         robj.name = name
         robj.data.name = name
         robj.display_type = 'SOLID'
-        # 镜像
+        # 镜像：复制网格 → 翻转 X → 合并 → 焊接接缝
         mirror_obj = None
         if s.use_mirror:
-            mirror_obj = robj.copy()
-            mirror_obj.data = robj.data
-            mirror_obj.name = name + "_镜像"
+            _ensure_obj_mode()
+            # 复制一份独立的网格数据
+            mirror_mesh = robj.data.copy()
+            mirror_mesh.name = robj.data.name + "_mirror"
+            mirror_obj = bpy.data.objects.new(name + "_mirror", mirror_mesh)
             mirror_obj.matrix_world = robj.matrix_world.copy()
-            # X 轴镜像
             mirror_obj.scale.x *= -1
             bpy.context.collection.objects.link(mirror_obj)
+            # 合并两个对象
+            bpy.ops.object.select_all(action='DESELECT')
+            robj.select_set(True)
+            mirror_obj.select_set(True)
+            bpy.context.view_layer.objects.active = robj
+            bpy.ops.object.join()
+            mirror_obj = None  # 已合并，引用清除
+            # 焊接中线顶点
+            bpy.ops.object.mode_set(mode='EDIT')
+            bpy.ops.mesh.select_all(action='SELECT')
+            bpy.ops.mesh.remove_doubles(threshold=0.0001)
+            bpy.ops.object.mode_set(mode='OBJECT')
+            fc = _tri_count(robj)
         bpy.ops.object.select_all(action='DESELECT')
         robj.select_set(True)
-        if mirror_obj:
-            mirror_obj.select_set(True)
         ctx.view_layer.objects.active = robj
         ofc = s.original_face_count
         s.result_face_count = fc
-        s.result_name = name + (" + 镜像" if mirror_obj else "")
+        s.result_name = name + ("（对称）" if s.use_mirror else "")
         s.has_selection = False
         s.selected_count = 0
         msg = f"已生成: {name}, {fc:,} 面"

@@ -184,6 +184,13 @@ class CarDecimatorSettings(bpy.types.PropertyGroup):
     original_obj_name: StringProperty(name="原始对象", default="")
     result_face_count: IntProperty(name="结果面数", default=0)
     result_name: StringProperty(name="结果名称", default="")
+    use_quad: BoolProperty(
+        name="生成四边面", default=True,
+        description="尽可能将三角面合并为四边面")
+    use_mirror: BoolProperty(
+        name="镜像对称", default=False,
+        description="生成镜像副本（沿 X 轴）")
+
 
 
 PRESETS = {
@@ -336,6 +343,19 @@ class CARMESH_OT_optimize(bpy.types.Operator):
             traceback.print_exc()
             self.report({'ERROR'}, f"生成失败: {e}")
             return {'CANCELLED'}
+        # 四边面转换
+        if s.use_quad:
+            _ensure_obj_mode()
+            bpy.ops.object.select_all(action='DESELECT')
+            robj.select_set(True)
+            bpy.context.view_layer.objects.active = robj
+            try:
+                bpy.ops.mesh.tris_convert_to_quads(
+                    face_threshold=0.7, shape_threshold=0.7,
+                    uvs=False, vcols=False, materials=False)
+                fc = _tri_count(robj)
+            except Exception:
+                pass
         base = obj.name + "_优化"
         name = base
         i = 1
@@ -345,12 +365,24 @@ class CARMESH_OT_optimize(bpy.types.Operator):
         robj.name = name
         robj.data.name = name
         robj.display_type = 'SOLID'
+        # 镜像
+        mirror_obj = None
+        if s.use_mirror:
+            mirror_obj = robj.copy()
+            mirror_obj.data = robj.data
+            mirror_obj.name = name + "_镜像"
+            mirror_obj.matrix_world = robj.matrix_world.copy()
+            # X 轴镜像
+            mirror_obj.scale.x *= -1
+            bpy.context.collection.objects.link(mirror_obj)
         bpy.ops.object.select_all(action='DESELECT')
         robj.select_set(True)
+        if mirror_obj:
+            mirror_obj.select_set(True)
         ctx.view_layer.objects.active = robj
         ofc = s.original_face_count
         s.result_face_count = fc
-        s.result_name = name
+        s.result_name = name + (" + 镜像" if mirror_obj else "")
         s.has_selection = False
         s.selected_count = 0
         msg = f"已生成: {name}, {fc:,} 面"
@@ -438,6 +470,9 @@ class CARMESH_PT_main(bpy.types.Panel):
         box = layout.box()
         box.label(text="步骤 3  生成", icon='RESTRICT_RENDER_OFF')
         col = box.column(align=True)
+        col.prop(s, "use_quad", text="生成四边面")
+        col.prop(s, "use_mirror", text="X 轴镜像")
+        col.separator()
         col.scale_y = 1.8
         col.operator("carmesh.optimize", text="生成优化网格", icon='CHECKMARK')
 

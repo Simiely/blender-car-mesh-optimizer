@@ -1,12 +1,12 @@
-"""Car Mesh Optimizer v3.2 — 高面车模智能减面
+"""Car Mesh Optimizer v3.3 — 高面车模智能减面
 
 选取特征点 → 调参数 → 一键生成优化网格
-Decimate 粗减 + 特征区细分 + Shrinkwrap 包裹 + 四边面 + 镜像
+顶点组加权 Decimate + 边界保护 + 平面溶解 + 四边面 + 镜像
 """
 bl_info = {
     "name": "Car Mesh Optimizer",
     "author": "Simiely",
-    "version": (3, 2, 0),
+    "version": (3, 3, 0),
     "blender": (3, 6, 0),
     "location": "3D 视图 > 右侧边栏 > 车模减面",
     "description": "高面车模智能减面 — 选点定密度，Decimate + 细分 + 包裹",
@@ -112,7 +112,28 @@ def _shrinkwrap(obj, target, offset=0.0005):
     bpy.ops.object.modifier_apply(modifier=mod.name)
 
 
-def _run_pipeline(orig, f_pct, nf_pct, kdtree):
+def _build_protected_verts(orig):
+    """构建保护顶点集合：特征边两端顶点 + 边界边顶点"""
+    protected = set()
+    # 特征边顶点
+    for e in orig.data.edges:
+        if e.select:
+            protected.add(e.vertices[0])
+            protected.add(e.vertices[1])
+    # 边界边顶点（仅邻接 1 个面 → 模型边缘 / 多部件接缝）
+    bm = bmesh.new()
+    bm.from_mesh(orig.data)
+    bm.edges.ensure_lookup_table()
+    for e in bm.edges:
+        if len(e.link_faces) == 1:
+            protected.add(e.verts[0].index)
+            protected.add(e.verts[1].index)
+    bm.free()
+    return protected
+
+
+def _run_pipeline(orig, nf_pct, protected_verts, use_shrinkwrap=False, use_quad=True):
+    """新管线：顶点组加权 Decimate → 平面溶解 → 可选包裹 → 四边面"""
     mesh = orig.data.copy()
     mesh.name = orig.data.name + "_tmp"
     robj = bpy.data.objects.new(orig.name + "_tmp", mesh)
@@ -123,39 +144,54 @@ def _run_pipeline(orig, f_pct, nf_pct, kdtree):
         bpy.ops.object.select_all(action='DESELECT')
         robj.select_set(True)
         bpy.context.view_layer.objects.active = robj
+
+        # ── 步骤1：顶点组加权 Decimate ──
+        if protected_verts:
+            vg = robj.vertex_groups.new(name="CD_Protect")
+            all_idx = list(range(len(robj.data.vertices)))
+            vg.add(all_idx, 0.0, 'REPLACE')
+            for i in protected_verts:
+                if i < len(robj.data.vertices):
+                    vg.add([i], 1.0, 'REPLACE')
+
         mod = robj.modifiers.new(name="CD_Dec", type='DECIMATE')
         mod.decimate_type = 'COLLAPSE'
         mod.ratio = min(1.0, max(0.01, nf_pct / 100.0))
         mod.use_collapse_triangulate = True
+        if protected_verts:
+            mod.vertex_group = vg.name
+            mod.vertex_group_factor = 1.0
         bpy.ops.object.modifier_apply(modifier=mod.name)
-        _shrinkwrap(robj, orig, 0.0005)
-        bm = bmesh.new()
-        bm.from_mesh(robj.data)
-        bm.verts.ensure_lookup_table()
-        bm.edges.ensure_lookup_table()
-        bm.faces.ensure_lookup_table()
-        subdiv = max(0, int(f_pct / max(nf_pct, 1)) - 1)
-        if subdiv > 0:
-            edge_cuts = {}
-            for e in bm.edges:
-                m = (e.verts[0].co + e.verts[1].co) / 2.0
-                _, _, dist = kdtree.find((m.x, m.y, m.z))
-                if dist < 0.01:
-                    edge_cuts[e] = subdiv
-            groups = {}
-            for e, c in edge_cuts.items():
-                groups.setdefault(c, []).append(e)
-            for cuts, edges in sorted(groups.items()):
-                for ct in ('INNER_VERT', 'INNER'):
-                    try:
-                        bmesh.ops.subdivide_edges(bm, edges=edges, cuts=cuts,
-                            use_grid_fill=True, quad_corner_type=ct, smooth=0.0)
-                        break
-                    except Exception:
-                        pass
-        bm.to_mesh(robj.data)
-        bm.free()
-        _shrinkwrap(robj, orig, 0.0003)
+
+        # ── 步骤2：可选 Shrinkwrap ──
+        if use_shrinkwrap:
+            _shrinkwrap(robj, orig, 0.0002)
+
+        # ── 步骤3：平面溶解（清理共面三角对） ──
+        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.mesh.select_all(action='SELECT')
+        try:
+            bpy.ops.mesh.dissolve_limited(angle_limit=0.087)  # ~5°
+        except Exception:
+            pass
+        bpy.ops.object.mode_set(mode='OBJECT')
+
+        # ── 步骤4：四边面转换（循环多轮） ──
+        if use_quad:
+            for _ in range(3):
+                prev = _tri_count(robj)
+                bpy.ops.object.mode_set(mode='EDIT')
+                bpy.ops.mesh.select_all(action='SELECT')
+                try:
+                    bpy.ops.mesh.tris_convert_to_quads(
+                        face_threshold=0.785, shape_threshold=0.785,
+                        uvs=False, vcols=False, materials=False)
+                except Exception:
+                    pass
+                bpy.ops.object.mode_set(mode='OBJECT')
+                if _tri_count(robj) == prev:
+                    break
+
         return robj, _tri_count(robj)
     except Exception:
         if robj:
@@ -190,7 +226,10 @@ class CarDecimatorSettings(bpy.types.PropertyGroup):
     result_name: StringProperty(name="结果名称", default="")
     use_quad: BoolProperty(
         name="生成四边面", default=True,
-        description="尽可能将三角面合并为四边面")
+        description="尽可能将三角面合并为四边面（循环转换）")
+    use_shrinkwrap: BoolProperty(
+        name="收缩包裹", default=False,
+        description="用原模型收缩包裹生成结果（薄壳模型慎用，可能产生形变）")
     mirror_axis: EnumProperty(
         name="镜像轴",
         items=[
@@ -342,31 +381,21 @@ class CARMESH_OT_optimize(bpy.types.Operator):
         if fp <= np_:
             self.report({'ERROR'}, f"特征区保留({fp:.0f}%)必须大于非特征区({np_:.0f}%)")
             return {'CANCELLED'}
-        kdtree, _, _ = _build_kdtree(obj)
-        if kdtree is None:
+        _ensure_obj_mode()  # 确保边选择状态已同步到 obj.data
+        protected = _build_protected_verts(obj)
+        if not protected:
             self.report({'ERROR'}, "特征线数据异常，请重新选取")
             return {'CANCELLED'}
         self.report({'INFO'}, "正在生成...")
         try:
-            robj, fc = _run_pipeline(obj, fp, np_, kdtree)
+            robj, fc = _run_pipeline(obj, np_, protected,
+                                     use_shrinkwrap=s.use_shrinkwrap,
+                                     use_quad=s.use_quad)
         except Exception as e:
             import traceback
             traceback.print_exc()
             self.report({'ERROR'}, f"生成失败: {e}")
             return {'CANCELLED'}
-        # 四边面转换
-        if s.use_quad:
-            _ensure_obj_mode()
-            bpy.ops.object.select_all(action='DESELECT')
-            robj.select_set(True)
-            bpy.context.view_layer.objects.active = robj
-            try:
-                bpy.ops.mesh.tris_convert_to_quads(
-                    face_threshold=0.7, shape_threshold=0.7,
-                    uvs=False, vcols=False, materials=False)
-                fc = _tri_count(robj)
-            except Exception:
-                pass
         base = obj.name + "_优化"
         name = base
         i = 1
@@ -496,6 +525,7 @@ class CARMESH_PT_main(bpy.types.Panel):
         box.label(text="步骤 3  生成", icon='RESTRICT_RENDER_OFF')
         col = box.column(align=True)
         col.prop(s, "use_quad", text="生成四边面")
+        col.prop(s, "use_shrinkwrap", text="收缩包裹（薄壳慎用）")
         col.prop(s, "mirror_axis", text="镜像轴")
         col.separator()
         col.scale_y = 1.8

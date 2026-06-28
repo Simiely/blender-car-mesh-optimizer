@@ -135,7 +135,7 @@ def _voxel_remesh(obj, size):
             return
         except Exception:
             pass
-    raise RuntimeError("Voxel Remesh failed")
+    raise RuntimeError("体素重网格失败，当前版本不支持")
 
 
 def _shrinkwrap(obj, target, offset=0.0005):
@@ -388,9 +388,9 @@ class CARMESH_OT_optimize(bpy.types.Operator):
         s.result_name = name
         s.has_edge_selection = False
         s.selected_edge_count = 0
-        msg = f"OK: {name}, {fc:,} faces"
+        msg = f"已生成：{name}，{fc:,} 面"
         if ofc > 0:
-            msg += f" (original {ofc:,}, -{(1-fc/ofc)*100:.1f}%)"
+            msg += f"（原始 {ofc:,} 面，减少 {(1-fc/ofc)*100:.1f}%）"
         self.report({'INFO'}, msg)
         return {'FINISHED'}
 

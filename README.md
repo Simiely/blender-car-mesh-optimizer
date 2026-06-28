@@ -4,7 +4,7 @@
 
 [![Blender](https://img.shields.io/badge/Blender-3.6+-orange.svg)](https://www.blender.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/Release-v0.1.0-blue.svg)](https://github.com/user/blender-car-mesh-optimizer/releases)
+[![Release](https://img.shields.io/badge/Release-v0.1.0-blue.svg)](https://github.com/Simiely/blender-car-mesh-optimizer/releases)
 
 ## 解决的问题
 
@@ -30,7 +30,7 @@
 
 ### 方法一：从 Release 安装（推荐）
 
-1. 前往 [Releases](https://github.com/user/blender-car-mesh-optimizer/releases) 页面
+1. 前往 [Releases](https://github.com/Simiely/blender-car-mesh-optimizer/releases) 页面
 2. 下载最新的 `blender_car_mesh_optimizer-vX.Y.Z.zip`
 3. 打开 Blender → `Edit` → `Preferences` → `Add-ons`
 4. 点击右上角 `Install...` 按钮
@@ -42,15 +42,15 @@
 ```bash
 # 克隆仓库到 Blender addons 目录
 # Linux
-git clone https://github.com/user/blender-car-mesh-optimizer.git \
+git clone https://github.com/Simiely/blender-car-mesh-optimizer.git \
   ~/.config/blender/4.0/scripts/addons/blender_car_mesh_optimizer
 
 # macOS
-git clone https://github.com/user/blender-car-mesh-optimizer.git \
+git clone https://github.com/Simiely/blender-car-mesh-optimizer.git \
   ~/Library/Application\ Support/Blender/4.0/scripts/addons/blender_car_mesh_optimizer
 
 # Windows (PowerShell)
-git clone https://github.com/user/blender-car-mesh-optimizer.git `
+git clone https://github.com/Simiely/blender-car-mesh-optimizer.git `
   $env:APPDATA\Blender Foundation\Blender\4.0\scripts\addons\blender_car_mesh_optimizer
 ```
 

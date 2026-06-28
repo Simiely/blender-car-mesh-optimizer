@@ -1,12 +1,12 @@
-"""Car Mesh Optimizer v3.3 — 高面车模智能减面
+"""Car Mesh Optimizer v3.4 — 高面车模智能减面
 
 选取特征点 → 调参数 → 一键生成优化网格
-顶点组加权 Decimate + 边界保护 + 平面溶解 + 四边面 + 镜像
+顶点组加权 Decimate + 松散块分离 + 边界保护 + 四边面 + 镜像
 """
 bl_info = {
     "name": "Car Mesh Optimizer",
     "author": "Simiely",
-    "version": (3, 3, 0),
+    "version": (3, 4, 0),
     "blender": (3, 6, 0),
     "location": "3D 视图 > 右侧边栏 > 车模减面",
     "description": "高面车模智能减面 — 选点定密度，Decimate + 细分 + 包裹",
@@ -132,7 +132,135 @@ def _build_protected_verts(orig):
     return protected
 
 
-def _run_pipeline(orig, nf_pct, protected_verts, use_shrinkwrap=False, use_quad=True):
+def _island_count(obj):
+    """统计网格中的松散块数量"""
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bm.faces.ensure_lookup_table()
+    visited = set()
+    islands = 0
+    for f in bm.faces:
+        if f.index in visited:
+            continue
+        islands += 1
+        stack = [f]
+        while stack:
+            cf = stack.pop()
+            if cf.index in visited:
+                continue
+            visited.add(cf.index)
+            for e in cf.edges:
+                for nf in e.link_faces:
+                    if nf.index not in visited:
+                        stack.append(nf)
+    bm.free()
+    return islands
+
+
+def _process_separated(obj, nf_pct, feature_edge_select, use_shrinkwrap, use_quad):
+    """分离松散块 → 各自减面 → 合并焊接 → 返回 (结果对象, 总面数)"""
+    _ensure_obj_mode()
+    
+    prefix = "_carmesh_split_"
+    # Step 1: 创建临时副本并复制边选中状态
+    tmp_mesh = obj.data.copy()
+    tmp_name = prefix + obj.name
+    tmp_obj = bpy.data.objects.new(tmp_name, tmp_mesh)
+    tmp_obj.matrix_world = obj.matrix_world.copy()
+    bpy.context.collection.objects.link(tmp_obj)
+    
+    for e in tmp_mesh.edges:
+        e.select = e.index in feature_edge_select
+    
+    # Step 2: 分离松散块
+    bpy.ops.object.select_all(action='DESELECT')
+    tmp_obj.select_set(True)
+    bpy.context.view_layer.objects.active = tmp_obj
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.mesh.separate(type='LOOSE')
+    bpy.ops.object.mode_set(mode='OBJECT')
+    
+    # Step 3: 收集所有分离出的块
+    parts = [o for o in bpy.data.objects if o.name.startswith(prefix)]
+    
+    # Step 4: 每个块独立处理
+    results = []
+    part_meshes = []  # 追踪分离源 mesh 以便清理
+    for p in parts:
+        part_meshes.append(p.data)
+    try:
+        for part in parts:
+            protected = _build_protected_verts(part)
+            r, _ = _run_pipeline(part, nf_pct, protected,
+                                 use_shrinkwrap=use_shrinkwrap, use_quad=use_quad)
+            results.append(r)
+    except Exception:
+        # 清理已生成的结果对象
+        for r in results:
+            md = r.data
+            for coll in r.users_collection:
+                coll.objects.unlink(r)
+            try:
+                bpy.data.objects.remove(r)
+            except Exception:
+                pass
+            if md and md.users == 0:
+                try:
+                    bpy.data.meshes.remove(md)
+                except Exception:
+                    pass
+        # 清理分离源对象
+        for p in parts:
+            md = p.data
+            for coll in p.users_collection:
+                coll.objects.unlink(p)
+            try:
+                bpy.data.objects.remove(p)
+            except Exception:
+                pass
+            if md and md.users == 0:
+                try:
+                    bpy.data.meshes.remove(md)
+                except Exception:
+                    pass
+        raise
+    
+    # Step 5: 合并
+    _ensure_obj_mode()
+    bpy.ops.object.select_all(action='DESELECT')
+    if len(results) == 1:
+        robj = results[0]
+    else:
+        for r in results:
+            r.select_set(True)
+        bpy.context.view_layer.objects.active = results[0]
+        bpy.ops.object.join()
+        robj = results[0]
+        # 焊接相邻块边缘接缝
+        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.mesh.select_all(action='SELECT')
+        bpy.ops.mesh.remove_doubles(threshold=0.0001)
+        bpy.ops.object.mode_set(mode='OBJECT')
+    
+    # Step 6: 清理分离源对象（保留合并结果）
+    for p in parts:
+        if p and p.name in bpy.data.objects and p != robj:
+            md = p.data
+            for coll in p.users_collection:
+                coll.objects.unlink(p)
+            try:
+                bpy.data.objects.remove(p)
+            except Exception:
+                pass
+            if md and md.users == 0 and md not in [r.data for r in results]:
+                try:
+                    bpy.data.meshes.remove(md)
+                except Exception:
+                    pass
+    
+    fc = _tri_count(robj)
+    return robj, fc
     """新管线：顶点组加权 Decimate → 平面溶解 → 可选包裹 → 四边面"""
     mesh = orig.data.copy()
     mesh.name = orig.data.name + "_tmp"
@@ -382,15 +510,24 @@ class CARMESH_OT_optimize(bpy.types.Operator):
             self.report({'ERROR'}, f"特征区保留({fp:.0f}%)必须大于非特征区({np_:.0f}%)")
             return {'CANCELLED'}
         _ensure_obj_mode()  # 确保边选择状态已同步到 obj.data
-        protected = _build_protected_verts(obj)
-        if not protected:
+        # 收集原始对象的特征边索引
+        feature_edges = {e.index for e in obj.data.edges if e.select}
+        if not feature_edges:
             self.report({'ERROR'}, "特征线数据异常，请重新选取")
             return {'CANCELLED'}
-        self.report({'INFO'}, "正在生成...")
+        # 检测松散块数量
+        islands = _island_count(obj)
+        self.report({'INFO'}, f"检测到 {islands} 个松散块，正在生成...")
         try:
-            robj, fc = _run_pipeline(obj, np_, protected,
-                                     use_shrinkwrap=s.use_shrinkwrap,
-                                     use_quad=s.use_quad)
+            if islands > 1:
+                robj, fc = _process_separated(obj, np_, feature_edges,
+                                              use_shrinkwrap=s.use_shrinkwrap,
+                                              use_quad=s.use_quad)
+            else:
+                protected = _build_protected_verts(obj)
+                robj, fc = _run_pipeline(obj, np_, protected,
+                                         use_shrinkwrap=s.use_shrinkwrap,
+                                         use_quad=s.use_quad)
         except Exception as e:
             import traceback
             traceback.print_exc()

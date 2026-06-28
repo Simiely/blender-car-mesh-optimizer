@@ -4,21 +4,23 @@
 
 [![Blender](https://img.shields.io/badge/Blender-3.6~5.x-orange.svg)](https://www.blender.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/Release-v3.2.0-blue.svg)](https://github.com/Simiely/blender-car-mesh-optimizer/releases)
+[![Release](https://img.shields.io/badge/Release-v3.3.0-blue.svg)](https://github.com/Simiely/blender-car-mesh-optimizer/releases)
 
 ## 解决的问题
 
 车模通常面数极高（百万级以上），直接用 Blender 内置 Decimate 减面会丢失车身特征线（腰线、门缝、引擎盖边缘）。
 
-本插件通过 **选取特征点 + 设定密度参数 + Decimate 粗减 + 特征区细分 + 收缩包裹** 策略，自由控制不同区域的网格密度，同时精确保持外形。
+本插件通过 **选取特征点 + 顶点组加权 Decimate + 边界保护 + 平面溶解 + 四边面转换** 策略，在减面的同时保护特征线和接缝不断开。
 
 ## 核心特性
 
-- **选点定密度**：手动或自动选取车身密集点，转特征边，附近保持高密度
+- **选点定密度**：手动或自动选取车身密集点，转特征边，顶点组加权保护
+- **自动边界保护**：检测仅邻接 1 个面的边（模型边缘 / 多部件接缝），防止减面断开
 - **按密度自动选点**：根据相邻边平均长度自动识别密集区域顶点
 - **一步生成**：无需预览，直接生成优化网格
-- **四边面转换**：自动将三角面合并为四边面
+- **四边面转换**：循环多轮自动将三角面合并为四边面
 - **镜像对称**：支持 X / Y / Z 轴镜像，自动合并为单一对称网格
+- **可选收缩包裹**：默认关闭（薄壳模型友好），需要时手动开启
 - **零依赖**：纯 Blender API，无需 numpy 等任何外部包
 - **全版本兼容**：Blender 3.6 到 5.x 均可用
 
@@ -121,6 +123,7 @@ copy blender_car_mesh_optimizer.py "$env:APPDATA\Blender Foundation\Blender\*\sc
 
 | 版本 | 日期 | 更新 |
 |------|------|------|
+| v3.3.0 | 2026-06 | 全新管线：顶点组加权 Decimate + 边界保护 + 平面溶解 |
 | v3.2.0 | 2026-06 | 四边面转换 + 镜像对称 (X/Y/Z) + 安装修复 |
 | v3.1.0 | 2026-06 | 选点模式 + 按密集度自动选点 |
 | v3.0.0 | 2026-06 | Decimate 替代 Voxel Remesh（薄壳模型友好） |

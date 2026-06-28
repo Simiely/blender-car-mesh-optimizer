@@ -1,4 +1,4 @@
-# 开发文档 v3.2.0
+# 开发文档 v3.3.0
 
 ## 技术架构
 
@@ -11,18 +11,20 @@
  顶点 → 边转换（两端均被选中的边记为特征边）
       │
       ▼
- KDTree 空间索引（边中点 → 最近邻查询）
+ 构建保护顶点集合
+ ├── 特征边两端顶点（用户选中）
+ └── 边界边顶点（仅 1 邻接面 → 模型边缘 / 多部件接缝）
       │
       ▼
- 原始模型 ─→ mesh.copy() ─→ Decimate Collapse 粗减（非特征区比例）
+ 原始模型 ─→ mesh.copy() ─→ 顶点组（保护=1.0, 其余=0.0）
       │                              │
-      │                      Shrinkwrap 包裹到原模型（PROJECT 双向投影）
+      │               Decimate Collapse（vertex_group 加权）
       │                              │
-      │               KDTree 匹配 → 特征边附近细分（subdivide_edges）
+      │               Shrinkwrap（可选，默认关闭）
       │                              │
-      │                      再次 Shrinkwrap 精修
+      │               dissolve_limited（平面溶解 ~5°）
       │                              │
-      │                     tris_convert_to_quads（四边面合并）
+      │               tris_convert_to_quads（循环多轮 ~45°）
       │                              │
       │                     镜像合并（可选 X/Y/Z 轴）
       │                              │
@@ -30,15 +32,15 @@
  保持不变                       最终优化网格
 ```
 
-### 为什么从 Voxel Remesh 切换到 Decimate
+### 为什么用顶点组加权 Decimate 替代 Shrinkwrap
 
-| | Voxel Remesh | Decimate Collapse |
+| | Shrinkwrap 方案 (v3.2-) | 顶点组加权 (v3.3+) |
 |---|---|---|
-| 薄壳模型（车盖） | ❌ 只生成一圈轮廓 | ✅ 正确保留薄壳形状 |
-| 体积依赖 | 需要封闭体积 | 无体积要求 |
-| 结果拓扑 | 全三角面 | 保留原始拓扑结构 |
-| 细分兼容 | 需要大量操作 | 可直接细分特征边 |
-| Blender API | voxel_size 参数名变化 | DECIMATE 稳定 |
+| 薄壳模型（车盖） | ❌ 双向投影拉出错误表面 | ✅ 不影响表面形状 |
+| 特征保护 | 减面后 KBTree 查找再细分（精度低） | 减面时直接保护（精度高） |
+| 多部件接缝 | ❌ 跨部件塌边导致断开 | ✅ 边界边顶点自动保护 |
+| 四边面产出 | ❌ 不规则拓扑难以合并 | ✅ 平面溶解预处理 + 循环转换 |
+| 管线复杂度 | Decimate → SW → Subdivide → SW | Decimate → 溶解 → 四边面 |
 
 ## 版本兼容策略
 
@@ -78,26 +80,26 @@ blender-car-mesh-optimizer/
 ```
   1-17    bl_info（插件元信息）
  19-24    imports（bpy, bmesh, bpy.props, KDTree）
- 28-57    工具函数（5）：_active_mesh, _tri_count, _ensure_obj_mode,
+ 28-61    工具函数（5）：_active_mesh, _tri_count, _ensure_obj_mode,
           _safe_remove_mods, _sel_count_in_edit
- 61-91    选点→特征边（3）：_verts_to_edges, _build_kdtree
- 96-163   引擎（2）：_shrinkwrap, _run_pipeline
-168-199   属性 PropertyGroup（CarDecimatorSettings）
-203-208   预设 PRESETS
-211-215   _apply_preset
-219-422   Operators（5）：prepare / select_dense / capture / optimize / preset
-425-508   面板 UI（CARMESH_PT_main）
-511-529   register / unregister
+ 63-95    选点→特征边（3）：_verts_to_edges, _build_kdtree
+ 98-112   收缩包裹函数（保留，可选）：_shrinkwrap
+114-132   保护顶点构建：_build_protected_verts
+134-203   引擎：_run_pipeline（顶点组加权 Decimate + 溶解 + 四边面）
+208-245   属性 PropertyGroup（CarDecimatorSettings）
+247-252   预设 PRESETS
+255-512   Operators（5）：prepare / select_dense / capture / optimize / preset
+          Panel（1）：CARMESH_PT_main
+516-534   register / unregister
 ```
 
 ## 核心 API 依赖
 
 | 功能 | API | 版本 |
 |------|-----|------|
-| 粗减面 | Decimate Modifier（COLLAPSE 模式） | 2.8+ |
-| 表面包裹 | Shrinkwrap Modifier（PROJECT 模式） | 2.8+ |
-| 选择性细分 | `bmesh.ops.subdivide_edges()` | 2.6+ |
-| 空间查询 | `mathutils.kdtree.KDTree` | 2.6+ |
+| 粗减面 | Decimate Modifier（COLLAPSE + vertex_group） | 2.8+ |
+| 表面包裹 | Shrinkwrap Modifier（PROJECT 模式，可选） | 2.8+ |
+| 平面溶解 | `bpy.ops.mesh.dissolve_limited()` | 2.8+ |
 | 四边面转换 | `bpy.ops.mesh.tris_convert_to_quads()` | 2.8+ |
 | 合并焊接 | `bpy.ops.mesh.remove_doubles()` | 2.8+ |
 | 属性系统 | `bpy.props`（含 EnumProperty） | 2.8+ |
@@ -106,9 +108,10 @@ blender-car-mesh-optimizer/
 ## 已知限制
 
 1. 结果网格会丢失 UV / 顶点色 / 形态键（原始模型不受影响）
-2. 特征边影响半径固定为 0.01（KDTree 匹配距离）
-3. 四边面转换依赖面法线夹角 < 40 度
+2. 边界检测依赖拓扑（仅 1 邻接面的边），完全合并的多部件无法区分接缝
+3. 四边面转换依赖面法线夹角 < 45 度
 4. 镜像合并时接缝精度固定为 0.0001m
+5. Shrinkwrap 可选功能对薄壳模型不友好，默认关闭
 
 ## 后续方向
 

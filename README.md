@@ -1,183 +1,114 @@
 # Car Mesh Optimizer
 
-高面车模智能减面工具 —— 专为汽车模型优化的 Blender 插件。
+密度自适应网格优化工具 —— 专为车模设计的 Blender 单文件插件。
 
 [![Blender](https://img.shields.io/badge/Blender-3.6+-orange.svg)](https://www.blender.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/Release-v0.1.0-blue.svg)](https://github.com/Simiely/blender-car-mesh-optimizer/releases)
+[![Release](https://img.shields.io/badge/Release-v2.0.0-blue.svg)](https://github.com/Simiely/blender-car-mesh-optimizer/releases)
 
 ## 解决的问题
 
-车模通常面数极高（百万级以上），直接用 Blender 内置 Decimate 减面会导致：
-- 车身特征线丢失
-- 曲面出现折痕
-- 玻璃/内饰/底盘的材质边界错乱
+车模通常面数极高（百万级以上），直接用 Blender 内置 Decimate 减面会丢失车身特征线。
 
-本插件通过 **外饰/内饰/底盘分区 + 多约束加权 QEM 边塌缩** 两阶段策略，在保持视觉质量的前提下，将高面车模精确减面到 10-30 万面。
+本插件通过 **选择重要特征线 + 设定密度参数 + Voxel Remesh + 自适应细分 + Shrinkwrap** 策略，自由控制不同区域的网格密度，同时精确保持外形。
 
 ## 核心特性
 
-- **自动分区**：按材质名称和遮挡关系，自动识别外饰、内饰、底盘
-- **多特征检测**：曲率分析 + 特征边检测 + 轮廓检测 + 法线偏差 + 材质/UV 边界
-- **两阶段减面**：Phase 1 粗减（Blender 原生） + Phase 2 精减（加权 QEM 边塌缩）
-- **预算分配**：外饰、内饰、底盘独立设置面数预算
-- **5 套预设**：默认 / 轿车 / SUV / 跑车 / 激进减面，一键切换
-- **向导式操作**：5 步完成，无需深入学习
+- **选线定密度**：手动选择重要的车身特征线，该区域保持高密度，其余区域自动稀疏
+- **自适应布线**：密度从特征线向外渐变过渡，布线自然
+- **实时预览**：生成预览网格，线框模式下查看布线效果和面数百分比
+- **反复调整**：不满意可以取消预览，调参数后重新生成
+- **零外部依赖**：纯 Blender API（bpy / bmesh / KDTree / Voxel Remesh / Shrinkwrap），无需 numpy
+- **单文件**：只有一个 `.py` 文件，570 行，安装简单
 
 ---
 
 ## 安装
 
-### 方法一：从 Release 安装（推荐）
+### 方法一：Install 单文件（推荐）
 
-1. 前往 [Releases](https://github.com/Simiely/blender-car-mesh-optimizer/releases) 页面
-2. 下载最新的 `blender_car_mesh_optimizer-vX.Y.Z.zip`
-3. 打开 Blender → `Edit` → `Preferences` → `Add-ons`
-4. 点击右上角 `Install...` 按钮
-5. 选择下载的 zip 文件，点击 `Install Add-on`
-6. 在插件列表中搜索 `Car Mesh Optimizer`，勾选启用
+1. 下载 `blender_car_mesh_optimizer.py`
+2. Blender → `Edit` → `Preferences` → `Add-ons` → `Install...`
+3. 选择 `blender_car_mesh_optimizer.py` → `Install Add-on`
+4. 搜索 `Car Mesh Optimizer`，勾选启用
 
-### 方法二：手动安装
+### 方法二：手动放入 addons 目录
 
 ```bash
-# 克隆仓库到 Blender addons 目录
 # Linux
-git clone https://github.com/Simiely/blender-car-mesh-optimizer.git \
-  ~/.config/blender/4.0/scripts/addons/blender_car_mesh_optimizer
+cp blender_car_mesh_optimizer.py ~/.config/blender/4.0/scripts/addons/
 
 # macOS
-git clone https://github.com/Simiely/blender-car-mesh-optimizer.git \
-  ~/Library/Application\ Support/Blender/4.0/scripts/addons/blender_car_mesh_optimizer
+cp blender_car_mesh_optimizer.py ~/Library/Application\ Support/Blender/4.0/scripts/addons/
 
-# Windows (PowerShell)
-git clone https://github.com/Simiely/blender-car-mesh-optimizer.git `
-  $env:APPDATA\Blender Foundation\Blender\4.0\scripts\addons\blender_car_mesh_optimizer
+# Windows
+copy blender_car_mesh_optimizer.py "%APPDATA%\Blender Foundation\Blender\4.0\scripts\addons\"
 ```
 
-然后打开 Blender → `Edit` → `Preferences` → `Add-ons`，搜索 `Car Mesh Optimizer` 并启用。
+然后 Blender → `Edit` → `Preferences` → `Add-ons` → 搜索并启用。
 
-### 方法三：下载 ZIP 手动解压
+### 方法三：git clone 后拷贝
 
-1. 下载仓库 ZIP
-2. 解压到 Blender 的 addons 目录：
-   - **Windows**: `%APPDATA%\Blender Foundation\Blender\<version>\scripts\addons\`
-   - **macOS**: `~/Library/Application Support/Blender/<version>/scripts/addons/`
-   - **Linux**: `~/.config/blender/<version>/scripts/addons/`
-3. 确保文件夹名为 `blender_car_mesh_optimizer`
-4. 打开 Blender → `Edit` → `Preferences` → `Add-ons`，搜索并启用
+```bash
+git clone https://github.com/Simiely/blender-car-mesh-optimizer.git
+# 将 blender_car_mesh_optimizer.py 拷贝到 Blender addons 目录即可
+```
 
 ### 启用后
 
-插件面板会出现在 3D View 右侧栏：`View3D` → 右侧边栏（按 `N` 键）→ `CarMeshOpt` 标签页。
+插件面板出现在 3D View 右侧栏：按 `N` 键 → `CarMeshOpt` 标签页。
 
 ---
 
-## 快速上手
-
-### 5 步完成减面
+## 快速上手（3 步）
 
 ```
-选中模型 → 选预设 → 分析 → 分类 → 特征检测 → 减面 → 检查 & 导出
+① 选择特征线 → ② 调密度参数 → ③ 预览 → 反复调整 → 应用
 ```
 
-### 详细操作
+### Step 1：选择特征线
 
-#### Step 1：分析模型
+1. 选中车模，点击面板中 **「选择特征线」**
+2. 自动进入编辑模式（边选择模式）
+3. 在 3D 视图选择重要的车身线条（腰线、门缝、引擎盖边缘等）
+4. 切换回 Object Mode
 
-1. 在 Blender 中打开或导入高面车模
-2. 选中模型，右侧 `CarMeshOpt` 面板
-3. 点击 **「开始分析」**
-4. 插件自动统计顶点数、面数、材质数
+### Step 2：调整密度参数
 
-#### Step 2：自动分类
+- **特征区密度**：选中线附近的体素大小（越小越密，默认 0.02m）
+- **非特征区密度**：其余区域的体素大小（越大面越少，默认 0.08m）
+- 可用预设按钮快速切换：默认 / 高精度 / 低面数 / 平衡
 
-1. 点击 **「自动分类」**
-2. 插件根据材质名和遮挡关系，将模型分为三类：
-   - **外饰（蓝）**：车身面板、玻璃、灯组、格栅
-   - **内饰（绿）**：座椅、仪表盘、方向盘
-   - **底盘（黄）**：发动机、悬挂、轮胎
-3. 可在顶点组面板中查看分类结果
-4. 调整预算占比滑块（外饰/内饰/底盘）
+### Step 3：预览 & 应用
 
-#### Step 3：特征检测
-
-1. 点击 **「检测特征」**
-2. 插件自动计算 5 种特征：
-   - 曲率分析（曲面弯曲程度）
-   - 特征边检测（折痕、门缝、腰线）
-   - 轮廓检测（多视角采样）
-   - 法线偏差（细微折痕）
-   - 材质/UV 边界
-3. 可调整各特征的 λ 权重系数
-4. 点击 **「显示特征热力图」** 在模型上查看权重分布
-
-#### Step 4：执行减面
-
-1. 设置 **「目标总面数」**（默认 20 万）
-2. 选择预设（轿车 / SUV / 跑车），或手动调整参数
-3. 点击 **「开始减面」**
-4. 等待两阶段完成：
-   - Phase 1 粗减：Blender 原生 Decimate，快速减少冗余面
-   - Phase 2 精减：加权 QEM 边塌缩，精确保护特征
-5. 完成后显示减面比例
-
-#### Step 5：检查结果
-
-1. 查看最终面数和减面比例
-2. 与原模型对比视觉效果
-3. 点击 **「导出模型」** 保存为 OBJ/FBX
+1. 点击 **「预览」**：生成临时网格，线框模式显示布线
+2. 面板显示预览面数和占原始面数的百分比
+3. 不满意 → 调参数 → 重新预览（可反复尝试）
+4. 满意 → 点击 **「应用」**：生成最终优化网格
 
 ---
 
 ## 参数说明
 
-### 面数预算
-
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| 目标总面数 | 200,000 | 最终期望的总面数 |
-| 外饰占比 | 75% | 外饰在总预算中的面数占比 |
-| 内饰占比 | 17% | 内饰在总预算中的面数占比 |
-| 底盘占比 | 8% | 底盘在总预算中的面数占比 |
+| 特征区密度 | 0.02m | 选中线附近的体素边长，越小面越多 |
+| 非特征区密度 | 0.08m | 其余区域体素边长，越大面越少 |
 
-### 特征权重（λ 参数）
-
-越高的值意味着该特征越不容易被减面。
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| λ₁ 曲率 | 2.0 | 曲面保护权重 |
-| λ₂ 特征边 | 20.0 | 特征线保护权重（极高值，保护腰线/门缝） |
-| λ₃ 轮廓 | 5.0 | 轮廓保护权重 |
-| λ₄ 法线偏差 | 3.0 | 折痕保护权重 |
-| λ₅ 边界 | 20.0 | 材质/UV 边界保护权重 |
-| λ₆ 用户权重 | 1.0 | 用户手动绘制的权重倍乘系数 |
-
-### 粗减参数
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| 外饰粗减比 | 50% | Phase 1 外饰减面比例 |
-| 内饰粗减比 | 90% | Phase 1 内饰减面比例 |
-| 底盘粗减比 | 90% | Phase 1 底盘减面比例 |
-
-### 预设对比
-
-| 预设 | 目标面数 | 外饰占比 | 特点 |
-|------|----------|----------|------|
-| 默认 | 20 万 | 75% | 通用平衡 |
-| 轿车 | 20 万 | 78% | 侧重外饰曲面 |
-| SUV | 20 万 | 75% | 加强轮廓保护 |
-| 跑车 | 25 万 | 82% | 特征线保护最强 |
-| 激进 | 10 万 | 70% | 极限减面 |
+| 预设 | 特征区 | 非特征区 | 适用 |
+|------|--------|----------|------|
+| 默认 | 0.020m | 0.080m | 通用 |
+| 高精度 | 0.010m | 0.050m | 保留最多细节 |
+| 低面数 | 0.030m | 0.150m | 远景/移动端 |
+| 平衡 | 0.015m | 0.060m | 质量与面数平衡 |
 
 ---
 
 ## 兼容性
 
 - **Blender**: 3.6 及以上版本
-- **输入模型**: 任意面数的三角/四边网格
-- **推荐**: 模型有规范的材质命名，可获得更好的分类效果
+- **输入模型**: 任意 Mesh 对象
+- **外部依赖**: 无
 
 ---
 

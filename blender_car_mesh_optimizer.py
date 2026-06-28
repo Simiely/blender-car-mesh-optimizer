@@ -1,12 +1,12 @@
-"""Car Mesh Optimizer v3.1 — 高面车模智能减面
+"""Car Mesh Optimizer v3.2 — 高面车模智能减面
 
 选取特征点 → 调参数 → 一键生成优化网格
-Decimate 粗减 + 特征区细分 + Shrinkwrap 包裹
+Decimate 粗减 + 特征区细分 + Shrinkwrap 包裹 + 四边面 + 镜像
 """
 bl_info = {
     "name": "Car Mesh Optimizer",
     "author": "Simiely",
-    "version": (3, 1, 0),
+    "version": (3, 2, 0),
     "blender": (3, 6, 0),
     "location": "3D 视图 > 右侧边栏 > 车模减面",
     "description": "高面车模智能减面 — 选点定密度，Decimate + 细分 + 包裹",
@@ -20,6 +20,7 @@ import bpy
 import bmesh
 from bpy.props import (
     IntProperty, FloatProperty, BoolProperty, StringProperty, PointerProperty,
+    EnumProperty,
 )
 from mathutils.kdtree import KDTree
 

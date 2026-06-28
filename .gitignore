@@ -3,4 +3,4 @@ __pycache__/
 *.pyo
 *.blend1
 .DS_Store
-dist/
+dist/__pycache__/

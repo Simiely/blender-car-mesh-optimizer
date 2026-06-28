@@ -479,7 +479,7 @@ class CARMESH_PT_main(bpy.types.Panel):
         if s.has_edge_selection:
             col = box.column(align=True)
             col.label(
-                text=f"已选中 {s.selected_edge_count} 条特征边",
+                text=f"已记录 {s.selected_edge_count} 条特征边",
                 icon='CHECKMARK'
             )
             col.operator("carmesh.prepare", text="重新选取", icon='GREASEPENCIL')
@@ -487,7 +487,15 @@ class CARMESH_PT_main(bpy.types.Panel):
             col = box.column(align=True)
             col.operator("carmesh.prepare", text="选取特征线", icon='GREASEPENCIL')
             col.label(text="编辑模式下选择重要的腰线/缝隙/轮廓", icon='INFO')
-            col.label(text="选好后切回物体模式即可", icon='INFO')
+            col.label(text="选好后切回物体模式，点击下方按钮确认", icon='INFO')
+            # 检测是否有 pending 的边选择
+            sel_cnt = _sel_edge_count(obj)
+            if sel_cnt > 0:
+                col.separator()
+                col.operator(
+                    "carmesh.capture", text=f"确认选取（{sel_cnt} 条边）",
+                    icon='CHECKMARK'
+                )
 
         layout.separator()
 

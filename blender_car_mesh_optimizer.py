@@ -555,15 +555,30 @@ CLASSES = (
 
 
 def register():
+    print("[CarMeshOpt] register 开始...")
     for cls in CLASSES:
-        bpy.utils.register_class(cls)
+        try:
+            bpy.utils.register_class(cls)
+        except Exception as e:
+            print(f"[CarMeshOpt] 注册 {cls.__name__} 失败: {e}")
+            raise
+    # 如果已有旧属性残留, 先删除
+    if hasattr(bpy.types.Scene, "car_decimator"):
+        del bpy.types.Scene.car_decimator
     bpy.types.Scene.car_decimator = PointerProperty(type=CarDecimatorSettings)
+    print("[CarMeshOpt] register 完成")
 
 
 def unregister():
-    del bpy.types.Scene.car_decimator
+    print("[CarMeshOpt] unregister 开始...")
+    if hasattr(bpy.types.Scene, "car_decimator"):
+        del bpy.types.Scene.car_decimator
     for cls in reversed(CLASSES):
-        bpy.utils.unregister_class(cls)
+        try:
+            bpy.utils.unregister_class(cls)
+        except Exception as e:
+            print(f"[CarMeshOpt] 注销 {cls.__name__} 失败: {e}")
+    print("[CarMeshOpt] unregister 完成")
 
 
 if __name__ == "__main__":

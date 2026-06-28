@@ -6,7 +6,7 @@
 bl_info = {
     "name": "Car Mesh Optimizer",
     "author": "Simiely",
-    "version": (2, 0, 0),
+    "version": (2, 0, 1),
     "blender": (3, 6, 0),
     "location": "3D 视图 > 右侧边栏 > 车模减面",
     "description": "高面车模智能减面工具 — 选特征线、配密度参数、预览布线效果、一键生成优化网格",

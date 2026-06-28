@@ -51,10 +51,13 @@ def _safe_remove_mods(obj, prefix):
 
 def _sel_count_in_edit(obj, mode='VERT'):
     """编辑模式下从 bmesh 读选中数"""
-    bm = bmesh.from_edit_mesh(obj.data)
-    if mode == 'EDGE':
-        return sum(1 for e in bm.edges if e.select)
-    return sum(1 for v in bm.verts if v.select)
+    try:
+        bm = bmesh.from_edit_mesh(obj.data)
+        if mode == 'EDGE':
+            return sum(1 for e in bm.edges if e.select)
+        return sum(1 for v in bm.verts if v.select)
+    except Exception:
+        return 0
 
 
 # ══════════════ 选点 → 特征边 ══════════════
@@ -270,9 +273,11 @@ class CARMESH_OT_select_dense(bpy.types.Operator):
                 v.select = True
                 cnt += 1
         bmesh.update_edit_mesh(obj.data)
-        # 强制刷新：闪一下选择模式
-        bpy.ops.mesh.select_mode(type='EDGE')
-        bpy.ops.mesh.select_mode(type='VERT')
+        # 同步选择到 obj.data（确保物体模式下也能读到）
+        sel_set = {v.index for v in bm.verts if v.select}
+        for v in obj.data.vertices:
+            v.select = v.index in sel_set
+        # 强制刷新所有 3D 视图
         for a in ctx.screen.areas:
             if a.type == 'VIEW_3D':
                 a.tag_redraw()
@@ -462,6 +467,9 @@ class CARMESH_PT_main(bpy.types.Panel):
             row.operator("carmesh.select_dense", text="", icon='AUTO')
             col.label(text="选好后切回物体模式点确认", icon='INFO')
             cnt = _sel_count_in_edit(obj) if obj.mode == 'EDIT' else sum(1 for v in obj.data.vertices if v.select)
+            # 回退：bmesh 暂不可用时从 obj.data 读
+            if cnt == 0 and obj.mode == 'EDIT':
+                cnt = sum(1 for v in obj.data.vertices if v.select)
             if cnt > 0:
                 col.separator()
                 col.operator("carmesh.capture",

@@ -109,28 +109,39 @@ def _gradient_cuts(bm, kdtree, fv_size, nf_size):
 # ═══════════════════════════════════════════════════════════════════════
 
 def _voxel_remesh(obj, size):
-    if bpy.context.object and bpy.context.object.mode != 'OBJECT':
-        bpy.ops.object.mode_set(mode='OBJECT')
+    _ensure_object_mode()
     bpy.ops.object.select_all(action='DESELECT')
     obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
-    mod = obj.modifiers.new(name="CD_VoxelRemesh", type='REMESH')
-    mod.mode = 'VOXEL'
-    mod.voxel_size = size
-    mod.use_smooth_shade = True
-    bpy.ops.object.modifier_apply(modifier=mod.name)
+    # 方案 A: Remesh Modifier（Blender 3.6+）
+    try:
+        mod = obj.modifiers.new(name="CD_VoxelRemesh", type='REMESH')
+        mod.mode = 'VOXEL'
+        mod.voxel_size = size
+        mod.use_smooth_shade = True
+        bpy.ops.object.modifier_apply(modifier=mod.name)
+        return
+    except Exception:
+        _safe_remove_mods(obj, "CD_VoxelRemesh")
+    # 方案 B: voxel_remesh operator（部分版本参数名不同，逐个尝试）
+    for kwargs in [
+        {"voxel_size": size},
+        {"size": size},
+    ]:
+        try:
+            bpy.ops.object.voxel_remesh(**kwargs)
+            return
+        except Exception:
+            pass
+    raise RuntimeError(f"Voxel Remesh 失败，当前 Blender 版本可能不支持")
 
 
 def _shrinkwrap(obj, target, offset=0.0005):
-    if bpy.context.object and bpy.context.object.mode != 'OBJECT':
-        bpy.ops.object.mode_set(mode='OBJECT')
+    _ensure_object_mode()
     bpy.ops.object.select_all(action='DESELECT')
     obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
-    # 清理同名残留 modifier
-    old = obj.modifiers.get("CD_Shrinkwrap")
-    if old:
-        obj.modifiers.remove(old)
+    _safe_remove_mods(obj, "CD_Shrinkwrap")
     mod = obj.modifiers.new(name="CD_Shrinkwrap", type='SHRINKWRAP')
     mod.wrap_method = 'PROJECT'
     mod.target = target
@@ -138,6 +149,25 @@ def _shrinkwrap(obj, target, offset=0.0005):
     mod.use_project_x = mod.use_project_y = mod.use_project_z = True
     mod.use_positive_direction = mod.use_negative_direction = True
     bpy.ops.object.modifier_apply(modifier=mod.name)
+
+
+def _ensure_object_mode():
+    """确保当前不在编辑模式"""
+    try:
+        if bpy.context.object and bpy.context.object.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+    except Exception:
+        pass
+
+
+def _safe_remove_mods(obj, prefix):
+    """删除所有以 prefix 开头的 modifier"""
+    for m in list(obj.modifiers):
+        if m.name.startswith(prefix):
+            try:
+                obj.modifiers.remove(m)
+            except Exception:
+                pass
 
 
 def _selective_subdivide(bm, kdtree, fv_size, nf_size):
@@ -566,7 +596,10 @@ class CARMESH_PT_main(bpy.types.Panel):
                 icon=icon
             )
             row = col.row(align=True)
-            row.prop(s, "face_reduction_pct", text="", slider=True, emboss=False)
+            try:
+                row.prop(s, "face_reduction_pct", text="", slider=True, emboss=False)
+            except TypeError:
+                row.prop(s, "face_reduction_pct", text="", slider=True)
             row.enabled = False
             col.separator()
             col.label(

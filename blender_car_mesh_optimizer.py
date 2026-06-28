@@ -114,10 +114,11 @@ def _voxel_remesh(obj, size):
     bpy.ops.object.select_all(action='DESELECT')
     obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
-    bpy.ops.object.voxel_remesh(
-        voxel_size=size, adaptivity=0.0,
-        smooth_normals=True, use_smooth_shade=True, mode='VOXEL',
-    )
+    mod = obj.modifiers.new(name="CD_VoxelRemesh", type='REMESH')
+    mod.mode = 'VOXEL'
+    mod.voxel_size = size
+    mod.use_smooth_shade = True
+    bpy.ops.object.modifier_apply(modifier=mod.name)
 
 
 def _shrinkwrap(obj, target, offset=0.0005):

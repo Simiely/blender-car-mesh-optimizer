@@ -179,10 +179,16 @@ def _selective_subdivide(bm, kdtree, fv_size, nf_size):
         groups.setdefault(c, []).append(e)
     total = 0
     for cuts, edges in sorted(groups.items()):
-        bmesh.ops.subdivide_edges(
-            bm, edges=edges, cuts=cuts,
-            use_grid_fill=True, quad_corner_type='INNER', smooth=0.0,
-        )
+        try:
+            bmesh.ops.subdivide_edges(
+                bm, edges=edges, cuts=cuts,
+                use_grid_fill=True, quad_corner_type='INNER', smooth=0.0,
+            )
+        except TypeError:
+            bmesh.ops.subdivide_edges(
+                bm, edges=edges, cuts=cuts,
+                use_grid_fill=True, quad_corner_type='INNER_VERT', smooth=0.0,
+            )
         total += len(edges)
     return total
 

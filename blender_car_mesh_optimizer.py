@@ -187,9 +187,16 @@ class CarDecimatorSettings(bpy.types.PropertyGroup):
     use_quad: BoolProperty(
         name="生成四边面", default=True,
         description="尽可能将三角面合并为四边面")
-    use_mirror: BoolProperty(
-        name="镜像对称", default=False,
-        description="生成镜像副本（沿 X 轴）")
+    mirror_axis: EnumProperty(
+        name="镜像轴",
+        items=[
+            ('NONE', "无", "不生成镜像"),
+            ('X', "X 轴", "沿 X 轴左右镜像"),
+            ('Y', "Y 轴", "沿 Y 轴前后镜像"),
+            ('Z', "Z 轴", "沿 Z 轴上下镜像"),
+        ],
+        default='NONE',
+        description="生成对称网格的镜像轴")
 
 
 
@@ -253,9 +260,6 @@ class CARMESH_OT_select_dense(bpy.types.Operator):
         bm = bmesh.from_edit_mesh(obj.data)
         bm.verts.ensure_lookup_table()
         bm.edges.ensure_lookup_table()
-        # 清 data 层
-        for v in obj.data.vertices:
-            v.select = False
         cnt = 0
         for v in bm.verts:
             if not v.link_edges:
@@ -263,10 +267,11 @@ class CARMESH_OT_select_dense(bpy.types.Operator):
             avg_len = sum(e.calc_length() for e in v.link_edges) / len(v.link_edges)
             if avg_len < t:
                 v.select = True
-                if v.index < len(obj.data.vertices):
-                    obj.data.vertices[v.index].select = True
                 cnt += 1
         bmesh.update_edit_mesh(obj.data)
+        # 强制刷新：闪一下选择模式
+        bpy.ops.mesh.select_mode(type='EDGE')
+        bpy.ops.mesh.select_mode(type='VERT')
         for a in ctx.screen.areas:
             if a.type == 'VIEW_3D':
                 a.tag_redraw()
@@ -367,23 +372,22 @@ class CARMESH_OT_optimize(bpy.types.Operator):
         robj.display_type = 'SOLID'
         # 镜像：复制网格 → 翻转 X → 合并 → 焊接接缝
         mirror_obj = None
-        if s.use_mirror:
+        if s.mirror_axis != 'NONE':
             _ensure_obj_mode()
-            # 复制一份独立的网格数据
+            axis_map = {'X': 0, 'Y': 1, 'Z': 2}
+            idx = axis_map[s.mirror_axis]
             mirror_mesh = robj.data.copy()
             mirror_mesh.name = robj.data.name + "_mirror"
             mirror_obj = bpy.data.objects.new(name + "_mirror", mirror_mesh)
             mirror_obj.matrix_world = robj.matrix_world.copy()
-            mirror_obj.scale.x *= -1
+            mirror_obj.scale[idx] *= -1
             bpy.context.collection.objects.link(mirror_obj)
-            # 合并两个对象
             bpy.ops.object.select_all(action='DESELECT')
             robj.select_set(True)
             mirror_obj.select_set(True)
             bpy.context.view_layer.objects.active = robj
             bpy.ops.object.join()
-            mirror_obj = None  # 已合并，引用清除
-            # 焊接中线顶点
+            mirror_obj = None
             bpy.ops.object.mode_set(mode='EDIT')
             bpy.ops.mesh.select_all(action='SELECT')
             bpy.ops.mesh.remove_doubles(threshold=0.0001)
@@ -394,7 +398,7 @@ class CARMESH_OT_optimize(bpy.types.Operator):
         ctx.view_layer.objects.active = robj
         ofc = s.original_face_count
         s.result_face_count = fc
-        s.result_name = name + ("（对称）" if s.use_mirror else "")
+        s.result_name = name + ("（对称）" if s.mirror_axis != 'NONE' else "")
         s.has_selection = False
         s.selected_count = 0
         msg = f"已生成: {name}, {fc:,} 面"
@@ -483,7 +487,7 @@ class CARMESH_PT_main(bpy.types.Panel):
         box.label(text="步骤 3  生成", icon='RESTRICT_RENDER_OFF')
         col = box.column(align=True)
         col.prop(s, "use_quad", text="生成四边面")
-        col.prop(s, "use_mirror", text="X 轴镜像")
+        col.prop(s, "mirror_axis", text="镜像轴")
         col.separator()
         col.scale_y = 1.8
         col.operator("carmesh.optimize", text="生成优化网格", icon='CHECKMARK')

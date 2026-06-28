@@ -8,8 +8,8 @@ bl_info = {
     "description": "高面车模智能减面工具 —— 外饰/内饰分区 + 多约束加权 QEM 边塌缩",
     "category": "Mesh",
     "support": "COMMUNITY",
-    "doc_url": "",
-    "tracker_url": "",
+    "doc_url": "https://github.com/Simiely/blender-car-mesh-optimizer",
+    "tracker_url": "https://github.com/Simiely/blender-car-mesh-optimizer/issues",
 }
 
 import bpy

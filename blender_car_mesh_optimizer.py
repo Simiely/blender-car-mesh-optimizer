@@ -165,12 +165,12 @@ def _selective_subdivide(bm, kdtree, fv_size, nf_size):
         try:
             bmesh.ops.subdivide_edges(
                 bm, edges=edges, cuts=cuts,
-                use_grid_fill=True, quad_corner_type='INNER', smooth=0.0,
+                use_grid_fill=True, quad_corner_type='INNER_VERT', smooth=0.0,
             )
-        except TypeError:
+        except Exception:
             bmesh.ops.subdivide_edges(
                 bm, edges=edges, cuts=cuts,
-                use_grid_fill=True, quad_corner_type='INNER_VERT', smooth=0.0,
+                use_grid_fill=True, quad_corner_type='INNER', smooth=0.0,
             )
         total += len(edges)
     return total
@@ -303,6 +303,10 @@ class CARMESH_OT_select_short(bpy.types.Operator):
                     obj.data.edges[e.index].select = True
                 cnt += 1
         bmesh.update_edit_mesh(obj.data)
+        # 强制刷新视口
+        for area in context.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
         if cnt == 0:
             self.report({'WARNING'}, f"没有长度小于 {threshold:.3f}m 的边")
         else:
@@ -451,6 +455,10 @@ class CARMESH_PT_main(bpy.types.Panel):
             row.operator("carmesh.select_short", text="", icon='AUTO')
             col.label(text="编辑模式选线后切回物体模式，点击下方确认", icon='INFO')
             sel_cnt = _sel_edge_count(obj)
+            # 编辑模式下确保从 bmesh 同步
+            if obj.mode == 'EDIT' and sel_cnt == 0:
+                bm = bmesh.from_edit_mesh(obj.data)
+                sel_cnt = sum(1 for e in bm.edges if e.select)
             if sel_cnt > 0:
                 col.separator()
                 col.operator(

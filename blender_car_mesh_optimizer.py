@@ -1,17 +1,15 @@
-"""Car Mesh Optimizer v2.0 — 密度自适应网格优化
+"""Car Mesh Optimizer v2.0 — 高面车模智能减面
 
 选择重要特征线 → 设定高/低密度区域体素大小 → 预览布线 → 应用生成
 零外部依赖，全部使用 Blender 原生 API (bpy / bmesh / KDTree / Voxel Remesh / Shrinkwrap)
-
-安装: 将此文件放入 Blender addons 目录，或通过 Preferences → Add-ons → Install 选择此文件
 """
 bl_info = {
     "name": "Car Mesh Optimizer",
-    "author": "Car Mesh Optimizer Team",
+    "author": "Simiely",
     "version": (2, 0, 0),
     "blender": (3, 6, 0),
-    "location": "View3D > Sidebar > CarMeshOpt",
-    "description": "密度自适应车模减面：选中特征线，设定密度，预览后应用",
+    "location": "3D 视图 > 右侧边栏 > 车模减面",
+    "description": "高面车模智能减面工具 — 选特征线、配密度参数、预览布线效果、一键生成优化网格",
     "category": "Mesh",
     "support": "COMMUNITY",
     "doc_url": "https://github.com/Simiely/blender-car-mesh-optimizer",
@@ -222,26 +220,26 @@ def _remesh_pipeline(orig, fv_size, nf_size, kdtree):
 
 class CarDecimatorSettings(bpy.types.PropertyGroup):
     feature_voxel_size: FloatProperty(
-        name="特征区密度", default=0.02, min=0.001, max=0.5,
+        name="特征区体素", default=0.02, min=0.001, max=0.5,
         step=0.001, precision=3, subtype='DISTANCE', unit='LENGTH',
-        description="高密度区域(选中边附近)的体素大小，越小越密集",
+        description="选中特征线附近的体素边长（越小越密，保留更多细节）",
     )
     nonfeature_voxel_size: FloatProperty(
-        name="非特征区密度", default=0.08, min=0.005, max=0.5,
+        name="非特征区体素", default=0.08, min=0.005, max=0.5,
         step=0.001, precision=3, subtype='DISTANCE', unit='LENGTH',
-        description="非选中区域的体素大小，越大面越少",
+        description="远离特征线区域的体素边长（越大面数越少）",
     )
-    selected_edge_count: IntProperty(name="选中边数", default=0)
-    has_edge_selection: BoolProperty(name="已有边选择", default=False)
+    selected_edge_count: IntProperty(name="已选边数", default=0)
+    has_edge_selection: BoolProperty(name="已选取特征线", default=False)
     is_previewing: BoolProperty(name="预览中", default=False)
-    preview_obj_name: StringProperty(name="预览对象名", default="")
+    preview_obj_name: StringProperty(name="预览对象", default="")
     preview_face_count: IntProperty(name="预览面数", default=0)
     original_face_count: IntProperty(name="原始面数", default=0)
     face_reduction_pct: FloatProperty(
         name="面数占比", default=100.0, min=0.0, max=100.0,
-        subtype='PERCENTAGE',
+        subtype='PERCENTAGE', description="预览网格面数占原始面数的百分比",
     )
-    original_obj_name: StringProperty(name="原始对象名", default="")
+    original_obj_name: StringProperty(name="原始对象", default="")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -249,10 +247,10 @@ class CarDecimatorSettings(bpy.types.PropertyGroup):
 # ═══════════════════════════════════════════════════════════════════════
 
 PRESETS = {
-    "DEFAULT":    {"name": "默认",   "fv": 0.020, "nf": 0.080},
-    "HIGH_DETAIL": {"name": "高精度", "fv": 0.010, "nf": 0.050},
-    "LOW_POLY":   {"name": "低面数", "fv": 0.030, "nf": 0.150},
-    "BALANCE":    {"name": "平衡",   "fv": 0.015, "nf": 0.060},
+    "DEFAULT": {"name": "默认",   "fv": 0.020, "nf": 0.080},
+    "HIGH":    {"name": "高精度", "fv": 0.010, "nf": 0.050},
+    "LOW":     {"name": "低面数", "fv": 0.030, "nf": 0.150},
+    "BALANCE": {"name": "均衡",   "fv": 0.015, "nf": 0.060},
 }
 
 def _apply_preset(settings, key):
@@ -267,8 +265,8 @@ def _apply_preset(settings, key):
 
 class CARMESH_OT_prepare(bpy.types.Operator):
     bl_idname = "carmesh.prepare"
-    bl_label = "选择特征线"
-    bl_description = "进入编辑模式，选择需要保护的特征边"
+    bl_label = "选取特征线"
+    bl_description = "进入编辑模式 — 选择车身重要线条（腰线 / 门缝 / 引擎盖边缘）"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
@@ -286,20 +284,20 @@ class CARMESH_OT_prepare(bpy.types.Operator):
         if obj.mode != 'EDIT':
             bpy.ops.object.mode_set(mode='EDIT')
         bpy.ops.mesh.select_mode(type='EDGE')
-        self.report({'INFO'}, "选择重要边后切换回 Object Mode 即可")
+        self.report({'INFO'}, "选好特征边后切换回物体模式即可")
         return {'FINISHED'}
 
 
 class CARMESH_OT_capture(bpy.types.Operator):
     bl_idname = "carmesh.capture"
-    bl_label = "记录选择"
-    bl_description = "记录当前选中的边作为特征线"
+    bl_label = "记录选取"
+    bl_description = "将当前选中的边标记为特征线"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
         obj = _active_mesh(context)
         if not obj:
-            self.report({'ERROR'}, "请先选择一个 Mesh 对象")
+            self.report({'ERROR'}, "请先选中一个网格对象")
             return {'CANCELLED'}
         s = context.scene.car_decimator
         if obj.mode == 'EDIT':
@@ -309,7 +307,7 @@ class CARMESH_OT_capture(bpy.types.Operator):
         s.selected_edge_count = cnt
         s.has_edge_selection = cnt > 0
         if cnt == 0:
-            self.report({'WARNING'}, "没有选中边，请至少选一条特征线")
+            self.report({'WARNING'}, "未选中任何边，请至少选一条特征线")
             return {'CANCELLED'}
         self.report({'INFO'}, f"已记录 {cnt} 条特征边")
         return {'FINISHED'}
@@ -317,36 +315,36 @@ class CARMESH_OT_capture(bpy.types.Operator):
 
 class CARMESH_OT_preview(bpy.types.Operator):
     bl_idname = "carmesh.preview"
-    bl_label = "预览"
-    bl_description = "生成预览网格，查看布线效果和面数"
+    bl_label = "生成预览"
+    bl_description = "生成临时网格预览布线效果和面数"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
         obj = _active_mesh(context)
         if not obj:
-            self.report({'ERROR'}, "请先选择一个 Mesh 对象")
+            self.report({'ERROR'}, "请先选中一个网格对象")
             return {'CANCELLED'}
         s = context.scene.car_decimator
         if not s.has_edge_selection or s.selected_edge_count == 0:
-            self.report({'ERROR'}, "请先选择特征边")
+            self.report({'ERROR'}, "请先选取特征线")
             return {'CANCELLED'}
         fv, nf = s.feature_voxel_size, s.nonfeature_voxel_size
         if fv >= nf:
             self.report({'ERROR'},
-                f"特征区密度({fv:.3f})必须小于非特征区密度({nf:.3f})")
+                f"特征区体素 ({fv:.3f}) 必须小于非特征区体素 ({nf:.3f})")
             return {'CANCELLED'}
         kdtree, _, _ = _build_kdtree(obj)
         if kdtree is None:
-            self.report({'ERROR'}, "无法构建特征边 KDTree，请重新选择")
+            self.report({'ERROR'}, "特征线数据异常，请重新选取")
             return {'CANCELLED'}
         _cleanup_existing(context)
-        self.report({'INFO'}, "正在生成预览...")
+        self.report({'INFO'}, "正在生成预览网格…")
         try:
             p_obj, fc = _remesh_pipeline(obj, fv, nf, kdtree)
         except Exception as e:
             import traceback
             traceback.print_exc()
-            self.report({'ERROR'}, f"预览生成失败: {e}")
+            self.report({'ERROR'}, f"预览生成失败：{e}")
             return {'CANCELLED'}
         p_obj.display_type = 'WIRE'
         p_obj.show_wire = True
@@ -360,14 +358,14 @@ class CARMESH_OT_preview(bpy.types.Operator):
         bpy.ops.object.select_all(action='DESELECT')
         p_obj.select_set(True)
         context.view_layer.objects.active = p_obj
-        self.report({'INFO'}, f"预览: {fc:,} 面 ({s.face_reduction_pct:.1f}%)")
+        self.report({'INFO'}, f"预览完成：{fc:,} 面（{s.face_reduction_pct:.1f}%）")
         return {'FINISHED'}
 
 
 class CARMESH_OT_cancel(bpy.types.Operator):
     bl_idname = "carmesh.cancel"
     bl_label = "取消预览"
-    bl_description = "删除预览网格，返回原始模型"
+    bl_description = "删除预览网格，回到原始模型"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
@@ -391,7 +389,7 @@ class CARMESH_OT_cancel(bpy.types.Operator):
 
 class CARMESH_OT_apply(bpy.types.Operator):
     bl_idname = "carmesh.apply"
-    bl_label = "应用"
+    bl_label = "应用结果"
     bl_description = "应用当前预览，生成最终优化后的网格"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -402,11 +400,11 @@ class CARMESH_OT_apply(bpy.types.Operator):
             return {'CANCELLED'}
         p_obj = bpy.data.objects.get(s.preview_obj_name)
         if p_obj is None:
-            self.report({'ERROR'}, "预览对象已丢失，请重新预览")
+            self.report({'ERROR'}, "预览对象已丢失，请重新生成预览")
             s.is_previewing = False
             s.preview_obj_name = ""
             return {'CANCELLED'}
-        base = (s.original_obj_name or "Mesh") + "_Optimized"
+        base = (s.original_obj_name or "Mesh") + "_优化"
         name = base
         i = 1
         while bpy.data.objects.get(name):
@@ -426,23 +424,23 @@ class CARMESH_OT_apply(bpy.types.Operator):
         s.preview_obj_name = ""
         s.has_edge_selection = False
         s.selected_edge_count = 0
-        msg = f"应用完成: {name}, {fc:,} 面"
+        msg = f"已生成：{name}，{fc:,} 面"
         if ofc > 0:
-            msg += f" (原 {ofc:,} 面)"
+            msg += f"（原始 {ofc:,} 面）"
         self.report({'INFO'}, msg)
         return {'FINISHED'}
 
 
 class CARMESH_OT_preset(bpy.types.Operator):
     bl_idname = "carmesh.preset"
-    bl_label = "应用预设"
-    bl_description = "应用预设的密度参数"
+    bl_label = "快速预设"
+    bl_description = "一键应用预设的密度参数"
     bl_options = {'REGISTER', 'UNDO'}
     preset_key: bpy.props.StringProperty()
 
     def execute(self, context):
         _apply_preset(context.scene.car_decimator, self.preset_key)
-        self.report({'INFO'}, f"已应用预设: {self.preset_key}")
+        self.report({'INFO'}, f"已应用预设参数")
         return {'FINISHED'}
 
 
@@ -451,91 +449,121 @@ class CARMESH_OT_preset(bpy.types.Operator):
 # ═══════════════════════════════════════════════════════════════════════
 
 class CARMESH_PT_main(bpy.types.Panel):
-    bl_label = "Car Mesh Optimizer"
+    bl_label = "车模网格减面"
     bl_idname = "CARMESH_PT_main"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = "CarMeshOpt"
+    bl_category = "车模减面"
 
     def draw(self, context):
         layout = self.layout
         try:
             s = context.scene.car_decimator
         except AttributeError:
-            layout.label(text="插件未正确加载", icon='ERROR')
+            layout.label(text="插件未正确加载，请重新启用", icon='ERROR')
             return
         obj = _active_mesh(context)
 
-        # ── 对象信息 ──
+        # ── 当前模型 ──
         box = layout.box()
-        box.label(text="目标对象", icon='OBJECT_DATA')
+        box.label(text="当前模型", icon='OBJECT_DATA')
         if obj is None:
-            box.label(text="请选择一个 Mesh 对象", icon='ERROR')
+            box.label(text="请选择一个网格对象", icon='ERROR')
             return
-        box.label(text=f"名称: {obj.name}")
-        box.label(text=f"原始面数: {_tri_count(obj):,}")
+        box.label(text=f"名称：{obj.name}")
+        box.label(text=f"原始面数：{_tri_count(obj):,}")
 
-        # ── 步骤 1: 特征线 ──
+        # ── 步骤 ①：选取特征线 ──
         box = layout.box()
-        box.label(text="步骤 1: 选择特征线", icon='EDGESEL')
+        box.label(text="步骤 ①  选取特征线", icon='EDGESEL')
         if s.has_edge_selection:
             col = box.column(align=True)
-            col.label(text=f"已选择 {s.selected_edge_count} 条特征边", icon='CHECKMARK')
-            col.operator("carmesh.prepare", text="重新选择", icon='GREASEPENCIL')
+            col.label(
+                text=f"已选中 {s.selected_edge_count} 条特征边",
+                icon='CHECKMARK'
+            )
+            col.operator("carmesh.prepare", text="重新选取", icon='GREASEPENCIL')
         else:
             col = box.column(align=True)
-            col.operator("carmesh.prepare", text="选择特征线", icon='GREASEPENCIL')
-            col.label(text="编辑模式选边 → 切回 Object Mode", icon='INFO')
+            col.operator("carmesh.prepare", text="选取特征线", icon='GREASEPENCIL')
+            col.label(text="编辑模式下选择重要的腰线/缝隙/轮廓", icon='INFO')
+            col.label(text="选好后切回物体模式即可", icon='INFO')
 
         layout.separator()
 
-        # ── 步骤 2: 密度 ──
+        # ── 步骤 ②：密度参数 ──
         box = layout.box()
-        box.label(text="步骤 2: 密度参数", icon='PREFERENCES')
+        box.label(text="步骤 ②  密度参数", icon='PREFERENCES')
         row = box.row(align=True)
-        row.label(text="预设:", icon='PRESET')
+        row.label(text="快速预设：", icon='PRESET')
         for k, v in PRESETS.items():
             op = row.operator("carmesh.preset", text=v["name"])
             op.preset_key = k
         col = box.column(align=True)
-        col.prop(s, "feature_voxel_size", text="特征区密度")
-        col.label(text=f"  → 边长 ≈ {s.feature_voxel_size:.3f}m", icon='DOT')
+        col.prop(s, "feature_voxel_size", text="特征区体素")
+        col.label(
+            text=f"  ↳ 特征线附近边长 ≈ {s.feature_voxel_size:.3f} m",
+            icon='DOT'
+        )
         col.separator()
-        col.prop(s, "nonfeature_voxel_size", text="非特征区密度")
-        col.label(text=f"  → 边长 ≈ {s.nonfeature_voxel_size:.3f}m", icon='DOT')
+        col.prop(s, "nonfeature_voxel_size", text="非特征区体素")
+        col.label(
+            text=f"  ↳ 其余区域边长 ≈ {s.nonfeature_voxel_size:.3f} m",
+            icon='DOT'
+        )
         if s.feature_voxel_size > 0:
             r = s.nonfeature_voxel_size / s.feature_voxel_size
-            col.label(text=f"密度比 {r:.1f}:1", icon='SORTSIZE')
+            col.label(
+                text=f"密度比 {r:.1f} : 1（特征区密 {r:.1f} 倍）",
+                icon='SORTSIZE'
+            )
 
         layout.separator()
 
-        # ── 步骤 3: 预览 & 应用 ──
+        # ── 步骤 ③：预览 & 应用 ──
         box = layout.box()
-        box.label(text="步骤 3: 预览 & 应用", icon='RESTRICT_RENDER_OFF')
+        box.label(text="步骤 ③  预览 / 应用", icon='RESTRICT_RENDER_OFF')
         row = box.row(align=True)
         row.scale_y = 1.5
-        row.operator("carmesh.preview", text="预览", icon='VIEWZOOM')
+        row.operator("carmesh.preview", text="生成预览", icon='VIEWZOOM')
         if s.is_previewing:
-            row.operator("carmesh.apply", text="应用", icon='CHECKMARK')
+            row.operator("carmesh.apply", text="应用结果", icon='CHECKMARK')
             box.operator("carmesh.cancel", text="取消预览", icon='X')
 
         layout.separator()
 
-        # ── 统计 ──
+        # ── 预览数据 ──
         if s.is_previewing:
             box = layout.box()
-            box.label(text="预览统计", icon='INFO')
+            box.label(text="预览数据", icon='INFO')
             col = box.column(align=True)
-            col.label(text=f"预览面数: {s.preview_face_count:,}", icon='MESH_DATA')
-            col.label(text=f"原始面数: {s.original_face_count:,}", icon='MESH_DATA')
+            col.label(
+                text=f"预览面数：{s.preview_face_count:,}",
+                icon='MESH_DATA'
+            )
+            col.label(
+                text=f"原始面数：{s.original_face_count:,}",
+                icon='MESH_DATA'
+            )
             pct = s.face_reduction_pct
-            icon = 'SORT_DESC' if pct < 50 else ('SORT_ASC' if pct < 80 else 'MOD_DECIM')
-            col.label(text=f"面数占比: {pct:.1f}% ({(100-pct):.1f}% 减少)", icon=icon)
+            if pct < 50:
+                icon = 'SORT_DESC'
+            elif pct < 80:
+                icon = 'SORT_ASC'
+            else:
+                icon = 'MOD_DECIM'
+            col.label(
+                text=f"占比：{pct:.1f}%（减少 {(100 - pct):.1f}%）",
+                icon=icon
+            )
             row = col.row(align=True)
             row.prop(s, "face_reduction_pct", text="", slider=True, emboss=False)
             row.enabled = False
             col.separator()
-            col.label(text=f"预览对象: {s.preview_obj_name}", icon='OUTLINER_OB_MESH')
+            col.label(
+                text=f"预览对象：{s.preview_obj_name}",
+                icon='OUTLINER_OB_MESH'
+            )
 
 
 # ═══════════════════════════════════════════════════════════════════════

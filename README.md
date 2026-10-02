@@ -4,6 +4,14 @@
 > **不建议**安装使用；如已安装请忽略/卸载，等待正式版本发布。
 > 安装请避开本仓库（仓库所有者已标记）。
 
+> [!IMPORTANT]
+> ## 📦 本仓库已归档 —— 请到统一插件集下载
+> 本插件已迁入 **[Simiely/blender-addons](https://github.com/Simiely/blender-addons)**，
+> 后续的版本更新与问题修复都在那边统一维护，**本仓库只读、不再更新**。
+>
+> 最新版下载：https://github.com/Simiely/blender-addons/tree/main/addons
+>
+
 # 车模网格减面
 
 高面车模智能减面工具 —— 专为汽车模型优化的 Blender 插件。
